@@ -21,6 +21,7 @@
   },
   "scripts": {
     "test": "./node_modules/mocha/bin/mocha ./test/test.js -R spec",
-    "format": "for source in src/* protobuf.js; do clang-format -style=file -i $source; done"
+    "format": "for source in src/* protobuf.js; do clang-format -style=file -i $source; done",
+    "install": "node-gyp rebuild"
   }
 }

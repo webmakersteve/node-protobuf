@@ -2,3 +2,8 @@ build
 .project
 node_modules
 *.orig
+deps
+!deps/protobuf
+deps/protobuf/config.h
+deps/protobuf/**/config.h
+*.log
