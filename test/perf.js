@@ -57,3 +57,21 @@ var t2 = process.hrtime()
 
 var diff = t2[0] * 1e9 + t2[1] - (t1[0] * 1e9 + t1[1])
 console.log("Time PBJS:", diff / 10);
+
+// Many
+
+var parsed = [];
+var serialized = [];
+
+for (var i = 0; i < 10; i++) {
+	parsed.push({
+		points: points
+	});
+}
+var t1 = process.hrtime();
+var serPB = pb.serializeMany(parsed, 'Points');
+var deserPB = pb.parseMany(serPB, 'Points');
+var t2 = process.hrtime();
+
+var diff = t2[0] * 1e9 + t2[1] - (t1[0] * 1e9 + t1[1]);
+console.log("  Time PB Many:", diff / 10);

@@ -97,6 +97,69 @@ pb_wrapper.prototype.parseWithUnknown = function() {
     })
 };
 
+pb_wrapper.prototype.parseMany = function() {
+  if (arguments.length < 2)
+    throw new Error("Invalid arguments");
+
+  var array = arguments[0];
+  var schema = arguments[1];
+  var callback = arguments[2] || null;
+  var limit = arguments[3] | 0;
+  var warn = arguments[4] | 0;
+  var native = this.native;
+
+  if (!Array.isArray(array))
+    throw new Error("First argument must be an array of buffers");
+
+  if (callback === null) {
+    var result = native.parseMany(array, schema, limit, warn);
+    if (result === null)
+      return [];
+    else
+      return result;
+  } else
+    process.nextTick(function() {
+      try {
+        var result = native.parseMany(array, schema, limit, warn);
+        callback(null, result);
+      } catch (e) {
+        callback(e, null);
+      }
+    })
+};
+
+pb_wrapper.prototype.serializeMany = function() {
+  if (arguments.length < 2)
+    throw new Error("Invalid arguments");
+
+  var array = arguments[0];
+  var schema = arguments[1];
+  var callback = arguments[2] || null;
+  var native = this.native;
+
+  if (!Array.isArray(array))
+    throw new Error("Argument must be an array of objects");
+
+  if (callback === null) {
+    var result = native.serializeMany(array, schema);
+    if (result === null)
+      return [];
+    else
+      return result;
+  } else
+    process.nextTick(function() {
+      try {
+        var result = native.serializeMany(array, schema);
+        if (result === null)
+          callback(null, []);
+        else
+          callback(null, result);
+      } catch (e) {
+        callback(e, null);
+      }
+    })
+};
+
 pb_wrapper.prototype.serialize = function() {
   if (arguments.length < 2)
     throw new Error("Invalid arguments");

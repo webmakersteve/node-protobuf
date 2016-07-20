@@ -18,9 +18,11 @@ void NativeProtobuf::Init(Local<Object> exports) {
 
   // prototype
   Nan::SetPrototypeMethod(tpl, "parse", NativeProtobuf::Parse);
+  Nan::SetPrototypeMethod(tpl, "parseMany", NativeProtobuf::ParseMany);
   Nan::SetPrototypeMethod(tpl, "parseWithUnknown",
                           NativeProtobuf::ParseWithUnknown);
   Nan::SetPrototypeMethod(tpl, "serialize", NativeProtobuf::Serialize);
+  Nan::SetPrototypeMethod(tpl, "serializeMany", NativeProtobuf::SerializeMany);
   Nan::SetPrototypeMethod(tpl, "info", NativeProtobuf::Info);
 
   constructor.Reset(tpl->GetFunction());
@@ -28,6 +30,12 @@ void NativeProtobuf::Init(Local<Object> exports) {
 }
 
 NAN_METHOD(NativeProtobuf::New) {
+
+  if (!Buffer::HasInstance(info[0])) {
+    Nan::ThrowError("Parameter must be a buffer");
+    info.GetReturnValue().Set(Nan::Null());
+    return;
+  }
 
   Local<Object> buffer_obj = info[0]->ToObject();
   char *buffer_data = Buffer::Data(buffer_obj);
@@ -79,25 +87,87 @@ NAN_METHOD(NativeProtobuf::Serialize) {
 
   if (SerializePart(message, subj, self->preserve_int64) < 0) {
     // required field not present!
+    // possible memory leak. message has not been cleaned up.
     info.GetReturnValue().Set(Nan::Null());
-    return;
-  }
+  } else {
+    // make JS Buffer instead of SlowBuffer
+    int size = message->ByteSize();
+    Local<Object> buffer = Nan::NewBuffer(size).ToLocalChecked();
+    char *buf = Buffer::Data(buffer);
+    bool result = message->SerializeToArray(buf, size);
 
-  // make JS Buffer instead of SlowBuffer
-  int size = message->ByteSize();
-  Local<Object> buffer = Nan::NewBuffer(size).ToLocalChecked();
-  char *buf = Buffer::Data(buffer);
-  bool result = message->SerializeToArray(buf, size);
-
-  if (!result) {
-    Nan::ThrowError("Can't serialize");
-    info.GetReturnValue().Set(Nan::Undefined());
-    return;
+    if (!result) {
+      Nan::ThrowError("Can't serialize");
+      info.GetReturnValue().Set(Nan::Undefined());
+    } else {
+      info.GetReturnValue().Set(buffer);
+    }
   }
 
   delete message;
 
-  info.GetReturnValue().Set(buffer);
+}
+
+NAN_METHOD(NativeProtobuf::SerializeMany) {
+
+  NativeProtobuf *self = Nan::ObjectWrap::Unwrap<NativeProtobuf>(info.This());
+
+  if (!info[0]->IsArray()) {
+    Nan::ThrowError("First parameter must be an array");
+  }
+  // get object to serialize and name of schema
+  Local<Array> subj_array = info[0].As<Array>();
+  String::Utf8Value schemaName(info[1]->ToString());
+  std::string schema_name = std::string(*schemaName);
+
+  // create a message based on schema
+  DynamicMessageFactory factory;
+  // Does this need to be removed? [Below]
+  const Descriptor *descriptor = self->pool->FindMessageTypeByName(schema_name);
+  if (descriptor == NULL) {
+    Nan::ThrowError(("Unknown schema name: " + schema_name).c_str());
+    info.GetReturnValue().Set(Nan::Undefined());
+    return;
+  }
+
+  Local<Array> ret = Nan::New<Array>();
+
+  for (unsigned int i = 0; i < subj_array->Length(); i++) {
+    google::protobuf::Message *message = factory.GetPrototype(descriptor)->New();
+
+    Local<Value> subj_value = subj_array->Get(i);
+
+    if (!subj_value->IsObject()) {
+      ret->Set(i, Nan::Null());
+      continue;
+    }
+
+    Local<Object> subj = subj_value->ToObject();
+
+    if (SerializePart(message, subj, self->preserve_int64) < 0) {
+      // required field not present!
+      ret->Set(i, Nan::Null());
+    } else {
+
+      // make JS Buffer instead of SlowBuffer
+      int size = message->ByteSize();
+      Local<Object> buffer = Nan::NewBuffer(size).ToLocalChecked();
+      char *buf = Buffer::Data(buffer);
+      bool result = message->SerializeToArray(buf, size);
+
+      if (!result) {
+        ret->Set(i, Nan::Undefined());
+        continue;
+      } else {
+        ret->Set(i, buffer);
+      }
+    }
+
+    delete message;
+
+  }
+
+  info.GetReturnValue().Set(ret);
 }
 
 NAN_METHOD(NativeProtobuf::Parse) {
@@ -134,19 +204,88 @@ NAN_METHOD(NativeProtobuf::Parse) {
   if (parseResult) {
     Local<Object> ret =
         ParsePart(Isolate::GetCurrent(), *message, self->preserve_int64);
-    delete message;
     info.GetReturnValue().Set(ret);
   } else {
     Nan::ThrowError("Malformed protocol buffer");
     info.GetReturnValue().Set(Nan::Null());
   }
+
+  delete message;
+}
+
+NAN_METHOD(NativeProtobuf::ParseMany) {
+  NativeProtobuf *self = Nan::ObjectWrap::Unwrap<NativeProtobuf>(info.This());
+
+  if (!info[0]->IsArray()) {
+    Nan::ThrowError("First parameter must be an array");
+  }
+  // get object to serialize and name of schema
+  Local<Array> subjArray = info[0].As<Array>();
+  String::Utf8Value schemaName(info[1]->ToString());
+  std::string schema_name = std::string(*schemaName);
+
+  // create a message based on schema
+  DynamicMessageFactory factory;
+  const Descriptor *descriptor = self->pool->FindMessageTypeByName(schema_name);
+  if (descriptor == NULL) {
+    Nan::ThrowError(("Unknown schema name: " + schema_name).c_str());
+    info.GetReturnValue().Set(Nan::Undefined());
+    return;
+  }
+
+  Local<Array> ret = Nan::New<Array>();
+
+  for (unsigned int i = 0; i < subjArray->Length(); i++) {
+    Local<Value> buffer_value = subjArray->Get(i);
+    if (!Buffer::HasInstance(buffer_value)) {
+      ret->Set(i, Nan::Error("Parse requires the element to be a buffer"));
+      continue;
+    }
+
+    Local<Object> buffer_obj = buffer_value->ToObject();
+
+    char *buffer_data = Buffer::Data(buffer_obj);
+    size_t buffer_length = Buffer::Length(buffer_obj);
+
+    google::protobuf::Message *message = factory.GetPrototype(descriptor)->New();
+
+    google::protobuf::io::ArrayInputStream array_stream(buffer_data,
+                                                        buffer_length);
+    google::protobuf::io::CodedInputStream coded_stream(&array_stream);
+    size_t max = info[2]->Uint32Value();
+    size_t warn = info[3]->Uint32Value();
+    if (max) {
+      coded_stream.SetTotalBytesLimit(max, warn ? warn : max);
+    }
+    bool parseResult = message->ParseFromCodedStream(&coded_stream);
+
+    if (parseResult) {
+      Local<Object> retObj =
+          ParsePart(Isolate::GetCurrent(), *message, self->preserve_int64);
+      ret->Set(i, retObj);
+    } else {
+      ret->Set(i, Nan::Error("Malformed protocol buffer"));
+    }
+
+    delete message;
+
+  }
+
+  info.GetReturnValue().Set(ret);
 }
 
 NAN_METHOD(NativeProtobuf::ParseWithUnknown) {
 
   NativeProtobuf *self = Nan::ObjectWrap::Unwrap<NativeProtobuf>(info.This());
 
+  if (!Buffer::HasInstance(info[0])) {
+    Nan::ThrowError("Parameter must be a buffer");
+    info.GetReturnValue().Set(Nan::Null());
+    return;
+  }
+
   Local<Object> buffer_obj = info[0]->ToObject();
+
   char *buffer_data = Buffer::Data(buffer_obj);
   size_t buffer_length = Buffer::Length(buffer_obj);
 
@@ -176,12 +315,13 @@ NAN_METHOD(NativeProtobuf::ParseWithUnknown) {
   if (parseResult) {
     Local<Object> ret = ParsePartWithUnknown(Isolate::GetCurrent(), *message,
                                              self->preserve_int64);
-    delete message;
     info.GetReturnValue().Set(ret);
   } else {
     Nan::ThrowError("Malformed protocol buffer");
     info.GetReturnValue().Set(Nan::Null());
   }
+
+  delete message;
 }
 
 NAN_METHOD(NativeProtobuf::Info) {

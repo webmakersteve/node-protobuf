@@ -1,6 +1,7 @@
 #ifndef NATIVE_H
 #define NATIVE_H
 
+#include <iostream>
 #include "common.h"
 
 class NativeProtobuf : public Nan::ObjectWrap {
@@ -16,8 +17,10 @@ public:
 private:
   static NAN_METHOD(New);
   static NAN_METHOD(Parse);
+  static NAN_METHOD(ParseMany);
   static NAN_METHOD(ParseWithUnknown);
   static NAN_METHOD(Serialize);
+  static NAN_METHOD(SerializeMany);
   static NAN_METHOD(Info);
 };
 
