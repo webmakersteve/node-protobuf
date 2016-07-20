@@ -1,6 +1,7 @@
 #ifndef SERIALIZE_H
 #define SERIALIZE_H
 
+#include <iostream>
 #include "common.h"
 
 void SerializeField(google::protobuf::Message *message, const Reflection *r,
